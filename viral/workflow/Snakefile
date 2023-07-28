@@ -6,7 +6,8 @@ SAMPLES, = glob_wildcards(os.path.join(INPUT_DIR,'{sample}_R1.fastq.gz'))
 MATES = ['R1','R2']
 rule all:
     input:
-        expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',sample=SAMPLES,mate=MATES)
+        #expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',sample=SAMPLES,mate=MATES)
+        expand('results/spades/{sample}/contigs.fasta',sample=SAMPLES)
 rule fastp:
     input:
         sample = expand(os.path.join(INPUT_DIR,'{sample}_{mate}.fastq.gz'),mate=MATES,allow_missing=True)
@@ -22,3 +23,20 @@ rule fastp:
     log: 'results/logs/fastp/{sample}.log'
     wrapper: 
         "v2.2.1/bio/fastp"
+
+rule spades:
+    input:
+        reads = expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',mate=MATES,allow_missing=True)
+    output:
+        contigs='results/spades/{sample}/contigs.fasta',
+        scaffolds='results/spades/{sample}/scaffolds.fasta',
+        dir=directory("results/spades/{sample}/intermediate_files")
+    benchmark:
+        'results/benchmarks/spades/{sample}.txt'
+    log:
+        'results/logs/spades/{sample}.log'
+    threads: 8
+    resources:
+        mem_mb = 8000
+    wrapper:
+        "v2.2.1/bio/spades/metaspades"
