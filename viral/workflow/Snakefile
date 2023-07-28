@@ -7,7 +7,8 @@ MATES = ['R1','R2']
 rule all:
     input:
         #expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',sample=SAMPLES,mate=MATES)
-        expand('results/spades/{sample}/contigs.fasta',sample=SAMPLES)
+        #expand('results/spades/{sample}/contigs.fasta',sample=SAMPLES)
+        'results/multiqc.html'
 rule fastp:
     input:
         sample = expand(os.path.join(INPUT_DIR,'{sample}_{mate}.fastq.gz'),mate=MATES,allow_missing=True)
@@ -40,3 +41,30 @@ rule spades:
         mem_mb = 8000
     wrapper:
         "v2.2.1/bio/spades/metaspades"
+
+rule quast:
+    input:
+        fasta = 'results/spades/{sample}/contigs.fasta',
+        pe1 = 'results/fastp/{sample}_R1.fastp.fastq.gz',
+        pe2 = 'results/fastp/{sample}_R2.fastp.fastq.gz'
+    output:
+        'results/quast/{sample}/report.tsv'
+    log:
+        'logs/quast/{sample}.log'
+    wrapper:
+        'v2.2.1/bio/quast'
+
+rule multiqc:
+    input: 
+        expand('results/fastp/{sample}.json',sample=SAMPLES),
+        expand('results/quast/{sample}/report.tsv',sample=SAMPLES)
+    output:
+        'results/multiqc.html'
+    params:
+        extra='--config config/multiqc.yaml',
+        use_input_files_only=True
+    log:
+        'results/multiqc.log'
+    wrapper:
+        "v2.2.1/bio/multiqc"
+
