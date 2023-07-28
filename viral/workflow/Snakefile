@@ -1,0 +1,24 @@
+import os
+configfile: 'config/config.yaml'
+INPUT_DIR = config['input_directory']
+
+SAMPLES, = glob_wildcards(os.path.join(INPUT_DIR,'{sample}_R1.fastq.gz'))
+MATES = ['R1','R2']
+rule all:
+    input:
+        expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',sample=SAMPLES,mate=MATES)
+rule fastp:
+    input:
+        sample = expand(os.path.join(INPUT_DIR,'{sample}_{mate}.fastq.gz'),mate=MATES,allow_missing=True)
+    output:
+        trimmed = expand('results/fastp/{sample}_{mate}.fastp.fastq.gz',mate=MATES,allow_missing=True),
+        unpaired1 = 'results/fastp/{sample}_U1.fastp.fastq.gz',
+        unpaired2 = 'results/fastp/{sample}_U2.fastp.fastq.gz',
+        failed = 'results/fastp/{sample}_failed.fastp.fastq.gz',
+        json = 'results/fastp/{sample}.json',
+        html = 'results/fastp/{sample}.html'
+    container: 'docker://r/nanozoo/fastp'
+    threads: 2
+    log: 'results/logs/fastp/{sample}.log'
+    wrapper: 
+        "v2.2.1/bio/fastp"
