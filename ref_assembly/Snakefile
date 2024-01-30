@@ -1,0 +1,16 @@
+rule all:
+    input:
+        "reads_trimmed.fastq.gz"
+
+rule fastp:
+    input:
+        "raw_data/SRR27135446_1.fastq.gz",
+        "raw_data/SRR27135446_2.fastq.gz"
+    output:
+        "reads_trimmed.fastq.gz"
+    conda:
+        "fastp"
+    shell:
+        """
+        fastp -i {input} -o {output}
+        """
