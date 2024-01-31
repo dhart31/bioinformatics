@@ -1,6 +1,6 @@
 rule all:
     input:
-        expand("picard/{sample}_duplicates_removed.bam", sample = ["SRR27135446"])
+        "multiqc_report.html"
 
 rule fastp:
     input:
@@ -24,11 +24,13 @@ rule bowtie2:
         bam = "bowtie2/{sample}.bam"
     conda:
         "bowtie2"
+    threads: 8
     params:
         ref = "~/references/AF266287"
     shell:
         """
-        bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} --sensitive-local | \
+        bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} \
+        --threads {threads} --sensitive-local |
         samtools sort - > {output.bam}
         """
 
@@ -47,4 +49,20 @@ rule picard:
         -O {output.bam} \
         -M {output.metrics} \
         --REMOVE_DUPLICATES
+        """
+
+rule multiqc:
+    input: 
+        expand("fastp/{sample}_trimmed_R1.fastq.gz", sample = ['ERR11523536']),
+        expand("fastp/{sample}_trimmed_R2.fastq.gz", sample = ['ERR11523536']),
+        expand("bowtie2/{sample}.bam", sample = ['ERR11523536']),
+        expand("picard/{sample}_duplicates_removed.bam", sample = ['ERR11523536']),
+        expand("picard/{sample}_picard.metrics", sample = ['ERR11523536'])
+    output:
+        "multiqc_report.html"
+    conda:
+        "multiqc"
+    shell:
+        """
+        multiqc .
         """
