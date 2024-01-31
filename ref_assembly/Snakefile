@@ -70,5 +70,4 @@ rule multiqc:
     shell:
         """
         multiqc --config {params.config} -f .
-        
         """
