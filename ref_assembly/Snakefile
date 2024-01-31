@@ -4,16 +4,21 @@ rule all:
 
 rule fastp:
     input:
-        r1="raw_data/{sample}_1.fastq.gz",
-        r2="raw_data/{sample}_2.fastq.gz"
+        r1 = "raw_data/{sample}_1.fastq.gz",
+        r2 = "raw_data/{sample}_2.fastq.gz"
     output:
-        r1="fastp/{sample}_trimmed_R1.fastq.gz",
-        r2="fastp/{sample}_trimmed_R2.fastq.gz"
+        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp/{sample}_trimmed_R2.fastq.gz",
+        json = "fastp/{sample}.json",
+        html = "fastp/{sample}.html"
     conda:
         "fastp"
     shell:
         """
-        fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2}
+        fastp \
+        -i {input.r1} -I {input.r2} \
+        -o {output.r1} -O {output.r2} \
+        -j {output.json} -h {output.html}
         """
 
 rule bowtie2:
@@ -24,7 +29,7 @@ rule bowtie2:
         bam = "bowtie2/{sample}.bam"
     conda:
         "bowtie2"
-    threads: 8
+    threads: 16
     params:
         ref = "~/references/AF266287"
     shell:
@@ -53,16 +58,17 @@ rule picard:
 
 rule multiqc:
     input: 
-        expand("fastp/{sample}_trimmed_R1.fastq.gz", sample = ['ERR11523536']),
-        expand("fastp/{sample}_trimmed_R2.fastq.gz", sample = ['ERR11523536']),
-        expand("bowtie2/{sample}.bam", sample = ['ERR11523536']),
+        expand("fastp/{sample}.json", sample = ['ERR11523536']),
         expand("picard/{sample}_duplicates_removed.bam", sample = ['ERR11523536']),
         expand("picard/{sample}_picard.metrics", sample = ['ERR11523536'])
     output:
         "multiqc_report.html"
     conda:
         "multiqc"
+    params: 
+        config = "~/repositories/bioinformatics_pipelines/ref_assembly/config/multiqc.yaml"
     shell:
         """
-        multiqc .
+        multiqc --config {params.config} -f .
+        
         """
