@@ -1,0 +1,2 @@
+# This repository contains a set of standard bioinformatics pipelines, including:
+- [Reference-based Assembly](https://github.com/dhart31/bioinformatics_pipelines/blob/ref_assembly/ref_assembly/Snakefile)
