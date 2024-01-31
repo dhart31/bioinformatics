@@ -1,14 +1,14 @@
 rule all:
     input:
-        "bowtie2/SRR27135446.bam"
+        expand("bowtie2/{sample}.bam", sample = ["SRR27135446"])
 
 rule fastp:
     input:
-        r1="raw_data/SRR27135446_1.fastq.gz",
-        r2="raw_data/SRR27135446_2.fastq.gz"
+        r1="raw_data/{sample}_1.fastq.gz",
+        r2="raw_data/{sample}_2.fastq.gz"
     output:
-        r1="fastp/SRR27135446_trimmed_R1.fastq.gz",
-        r2="fastp/SRR27135446_trimmed_R2.fastq.gz"
+        r1="fastp/{sample}_trimmed_R1.fastq.gz",
+        r2="fastp/{sample}_trimmed_R2.fastq.gz"
     conda:
         "fastp"
     shell:
@@ -18,10 +18,10 @@ rule fastp:
 
 rule bowtie2:
     input:
-        r1 = "fastp/SRR27135446_trimmed_R1.fastq.gz",
-        r2 = "fastp/SRR27135446_trimmed_R2.fastq.gz"
+        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp/{sample}_trimmed_R2.fastq.gz"
     output:
-        bam = "bowtie2/SRR27135446.bam"
+        bam = "bowtie2/{sample}.bam"
     conda:
         "bowtie2"
     params:
