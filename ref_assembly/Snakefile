@@ -1,16 +1,33 @@
 rule all:
     input:
-        "reads_trimmed.fastq.gz"
+        "bowtie2/SRR27135446.bam"
 
 rule fastp:
     input:
-        "raw_data/SRR27135446_1.fastq.gz",
-        "raw_data/SRR27135446_2.fastq.gz"
+        r1="raw_data/SRR27135446_1.fastq.gz",
+        r2="raw_data/SRR27135446_2.fastq.gz"
     output:
-        "reads_trimmed.fastq.gz"
+        r1="fastp/SRR27135446_trimmed_R1.fastq.gz",
+        r2="fastp/SRR27135446_trimmed_R2.fastq.gz"
     conda:
         "fastp"
     shell:
         """
-        fastp -i {input} -o {output}
+        fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2}
+        """
+
+rule bowtie2:
+    input:
+        r1 = "fastp/SRR27135446_trimmed_R1.fastq.gz",
+        r2 = "fastp/SRR27135446_trimmed_R2.fastq.gz"
+    output:
+        bam = "bowtie2/SRR27135446.bam"
+    conda:
+        "bowtie2"
+    params:
+        ref = "~/references/AF266287"
+    shell:
+        """
+        bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} --sensitive-local | \
+        samtools view -b - > {output.bam}
         """
