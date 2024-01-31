@@ -1,6 +1,6 @@
 rule all:
     input:
-        expand("bowtie2/{sample}.bam", sample = ["SRR27135446"])
+        expand("picard/{sample}_duplicates_removed.bam", sample = ["SRR27135446"])
 
 rule fastp:
     input:
@@ -30,4 +30,21 @@ rule bowtie2:
         """
         bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} --sensitive-local | \
         samtools sort - > {output.bam}
+        """
+
+rule picard:
+    input:
+        bam = "bowtie2/{sample}.bam"
+    output:
+        bam = "picard/{sample}_duplicates_removed.bam",
+        metrics = "picard/{sample}_picard.metrics"
+    conda:
+        "picard"
+    shell:
+        """
+        picard MarkDuplicates \
+        -I {input.bam} \
+        -O {output.bam} \
+        -M {output.metrics} \
+        --REMOVE_DUPLICATES
         """
