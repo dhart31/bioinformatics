@@ -1,0 +1,30 @@
+<script src="https://biowasm.com/cdn/v3/aioli.js"></script>
+<script type="module">
+const CLI = await new Aioli(["fastp/0.20.1","bowtie2/bowtie2-align-s/2.4.2"]);
+
+// Function to launch samtools
+async function run() {
+	// CLI.mount returns the absolute path of each file mounted
+	const reads = document.getElementById("reads").files;
+	const reads_path = await CLI.mount(reads);
+	const index = document.getElementById("ref").files;
+	const index_path = await CLI.mount(index);
+	const index_basename = index_path[0].split('.').shift()
+	// Retrieve SAM header on the first file provided
+	console.log(reads_path)
+	let output = await CLI.exec(`fastp -i ${reads_path[0]} -I ${reads_path[1]} -o R1_trimmed.fastq.gz -O R2_trimmed.fastq.gz`);
+	output = await CLI.exec(`bowtie2-align-s -x ${index_basename} -1 R1_trimmed.fastq.gz -2 R2_trimmed.fastq.gz --threads 16 --sensitive-local`)
+	document.getElementById("output").innerHTML = output;
+}
+
+// Run samtools when the user clicks the "Run" button
+document.getElementById("btn").addEventListener("click", run);
+</script>
+
+<p>Please select a fastq file: </p>
+<p><input id="reads" type="file" multiple="multiple"></p>
+<p><input id="ref" type="file" multiple="multiple"></p>
+<p><button id="btn">Run pipeline</button></p>
+
+<h4>Output of <code>fastp</code>:</h4>
+<pre id="output"></pre>
