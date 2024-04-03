@@ -62,7 +62,7 @@ rule bedtools_genomecov:
     input:
         bam = "samtools_rmdup/{sample}_rmdup.bam"
     output:
-        "bedtools_genomecov/{sample}_genomecov.txt"
+        "bedtools_genomecov/{sample}.bed"
     conda:
         "bedtools"
     log:
@@ -72,13 +72,27 @@ rule bedtools_genomecov:
         bedtools genomecov -d -ibam {input.bam} > {output} 2> {log}
         """
 
+rule plot_coverage:
+    input:
+        bedfiles = expand("bedtools_genomecov/{sample}_genomecov.bed",sample=['AF266287_sample1'])
+    output:
+        "plot_coverage/coverage_across_reference_mqc.html"
+    conda:
+        "plot"
+    params:
+        script = f"{workflow.basedir}/scripts/plot_coverage.py"
+    shell:
+        """
+        python {params.script} -i {input.bedfiles} -o {output}
+        """
+
 rule multiqc_report:
     input: 
         expand("fastp_trim/{sample}.json",sample=['AF266287_sample1']),
         expand("samtools_rmdup/{sample}_rmdup.bam",sample=['AF266287_sample1']),
-        expand("bedtools_genomecov/{sample}_genomecov.txt",sample=['AF266287_sample1'])
-        # expand("picard/{sample}_duplicates_removed.bam",sample=['AF266287_sample']),
-        # expand("picard/{sample}_picard.metrics",sample=['AF266287_sample'])
+        expand("bedtools_genomecov/{sample}_genomecov.txt",sample=['AF266287_sample1']),
+        "plot_coverage/coverage_across_reference_mqc.html"
+
     output:
         "multiqc_report.html"
     conda:
