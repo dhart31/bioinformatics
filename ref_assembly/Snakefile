@@ -3,19 +3,19 @@ rule all:
     input:
         "multiqc_report.html"
 
-rule fastp:
+rule fastp_trim:
     input:
         r1 = "raw_data/{sample}_R1.fastq",
         r2 = "raw_data/{sample}_R2.fastq"
     output:
-        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp/{sample}_trimmed_R2.fastq.gz",
-        json = "fastp/{sample}.json",
-        html = "fastp/{sample}.html"
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz",
+        json = "fastp_trim/{sample}.json",
+        html = "fastp_trim/{sample}.html"
     conda:
         "fastp"
     log:
-        "fastp/{sample}.log"
+        "fastp_trim/{sample}.log"
     shell:
         """
         fastp \
@@ -25,19 +25,19 @@ rule fastp:
         2> {log}
         """
 
-rule bowtie2:
+rule bowtie2_align:
     input:
-        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp/{sample}_trimmed_R2.fastq.gz"
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
     output:
-        bam = "bowtie2/{sample}.bam"
+        bam = "bowtie2_align/{sample}.bam"
     conda:
         "bowtie2"
     threads: 16
     params:
         ref = "~/references/AF266287"
     log:
-        "bowtie2/{sample}.log"
+        "bowtie2_align/{sample}.log"
     shell:
         """
         bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} \
@@ -46,7 +46,7 @@ rule bowtie2:
         """
 rule samtools_rmdup:
     input:
-        bam = "bowtie2/{sample}.bam"
+        bam = "bowtie2_align/{sample}.bam"
     output:
         bam = "samtools_rmdup/{sample}_rmdup.bam"
     log:
@@ -58,10 +58,25 @@ rule samtools_rmdup:
         samtools rmdup {input.bam} {output.bam} > {log} 2>&1
         """
 
-rule multiqc:
+rule bedtools_genomecov:
+    input:
+        bam = "samtools_rmdup/{sample}_rmdup.bam"
+    output:
+        "bedtools_genomecov/{sample}_genomecov.txt"
+    conda:
+        "bedtools"
+    log:
+        "bedtools_genomecov/{sample}_genomecov.log"
+    shell:
+        """
+        bedtools genomecov -d -ibam {input.bam} > {output} 2> {log}
+        """
+
+rule multiqc_report:
     input: 
-        expand("fastp/{sample}.json",sample=['AF266287_sample1']),
-        expand("samtools_rmdup/{sample}_rmdup.bam",sample=['AF266287_sample1'])
+        expand("fastp_trim/{sample}.json",sample=['AF266287_sample1']),
+        expand("samtools_rmdup/{sample}_rmdup.bam",sample=['AF266287_sample1']),
+        expand("bedtools_genomecov/{sample}_genomecov.txt",sample=['AF266287_sample1'])
         # expand("picard/{sample}_duplicates_removed.bam",sample=['AF266287_sample']),
         # expand("picard/{sample}_picard.metrics",sample=['AF266287_sample'])
     output:
