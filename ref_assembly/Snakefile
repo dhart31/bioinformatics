@@ -14,12 +14,15 @@ rule fastp:
         html = "fastp/{sample}.html"
     conda:
         "fastp"
+    log:
+        "fastp/{sample}.log"
     shell:
         """
         fastp \
         -i {input.r1} -I {input.r2} \
         -o {output.r1} -O {output.r2} \
-        -j {output.json} -h {output.html}
+        -j {output.json} -h {output.html} \
+        2> {log}
         """
 
 rule bowtie2:
@@ -33,10 +36,12 @@ rule bowtie2:
     threads: 16
     params:
         ref = "~/references/AF266287"
+    log:
+        "bowtie2/{sample}.log"
     shell:
         """
         bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} \
-        --threads {threads} --sensitive-local |
+        --threads {threads} --sensitive-local 2> {log} |
         samtools sort - > {output.bam}
         """
 rule samtools_rmdup:
@@ -44,11 +49,13 @@ rule samtools_rmdup:
         bam = "bowtie2/{sample}.bam"
     output:
         bam = "samtools_rmdup/{sample}_rmdup.bam"
+    log:
+        "samtools_rmdup/{sample}_rmdup.log"
     conda:
         "samtools"
     shell:
         """
-        samtools rmdup {input.bam} {output.bam}
+        samtools rmdup {input.bam} {output.bam} > {log} 2>&1
         """
 
 rule multiqc:
