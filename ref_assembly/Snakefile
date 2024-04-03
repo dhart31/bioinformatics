@@ -1,11 +1,12 @@
+
 rule all:
     input:
         "multiqc_report.html"
 
 rule fastp:
     input:
-        r1 = "raw_data/{sample}_1.fastq.gz",
-        r2 = "raw_data/{sample}_2.fastq.gz"
+        r1 = "raw_data/{sample}_R1.fastq",
+        r2 = "raw_data/{sample}_R2.fastq"
     output:
         r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
         r2 = "fastp/{sample}_trimmed_R2.fastq.gz",
@@ -38,29 +39,24 @@ rule bowtie2:
         --threads {threads} --sensitive-local |
         samtools sort - > {output.bam}
         """
-
-rule picard:
+rule samtools_rmdup:
     input:
         bam = "bowtie2/{sample}.bam"
     output:
-        bam = "picard/{sample}_duplicates_removed.bam",
-        metrics = "picard/{sample}_picard.metrics"
+        bam = "samtools_rmdup/{sample}_rmdup.bam"
     conda:
-        "picard"
+        "samtools"
     shell:
         """
-        picard MarkDuplicates \
-        -I {input.bam} \
-        -O {output.bam} \
-        -M {output.metrics} \
-        --REMOVE_DUPLICATES
+        samtools rmdup {input.bam} {output.bam}
         """
 
 rule multiqc:
     input: 
-        expand("fastp/{sample}.json", sample = ['ERR11523536']),
-        expand("picard/{sample}_duplicates_removed.bam", sample = ['ERR11523536']),
-        expand("picard/{sample}_picard.metrics", sample = ['ERR11523536'])
+        expand("fastp/{sample}.json",sample=['AF266287_sample1']),
+        expand("samtools_rmdup/{sample}_rmdup.bam",sample=['AF266287_sample1'])
+        # expand("picard/{sample}_duplicates_removed.bam",sample=['AF266287_sample']),
+        # expand("picard/{sample}_picard.metrics",sample=['AF266287_sample'])
     output:
         "multiqc_report.html"
     conda:
