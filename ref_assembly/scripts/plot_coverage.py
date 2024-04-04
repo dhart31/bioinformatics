@@ -72,6 +72,7 @@ if __name__ == '__main__':
     
     if args.version:
         with open(args.version, 'a') as f:
-            f.write(f'pandas: {pd_version}\n')
-            f.write(f'bokeh: {bokeh_version}\n')
-            f.write(f'matplotlib: {mpl_version}\n')
+            f.write('plot_coverage:\n')
+            f.write(f'  pandas: {pd_version}\n')
+            f.write(f'  bokeh: {bokeh_version}\n')
+            f.write(f'  matplotlib: {mpl_version}\n')

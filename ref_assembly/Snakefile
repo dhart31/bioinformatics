@@ -27,7 +27,7 @@ rule fastp_trim:
         2> {log};
 
         version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
-        echo "fastp: "$version >> {params.version}
+        echo "fastp: "$version > {params.version}
         """
 
 rule bowtie2_align:
@@ -50,8 +50,11 @@ rule bowtie2_align:
         --threads {threads} --sensitive-local 2> {log} |
         samtools sort - > {output.bam};
 
+        echo "bowtie2_align:" >> {params.version}
         version=$(bowtie2 --version 2>&1 | head -n 1 | cut -f 3 -d ' ');
-        echo "bowtie2: "$version >> {params.version}
+        echo "  bowtie2: "$version >> {params.version}
+        version=$(samtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
+        echo "  samtools: "$version >> {params.version}
         """
 rule samtools_rmdup:
     input:
