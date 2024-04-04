@@ -6,6 +6,9 @@ from bokeh.plotting import figure
 from bokeh.models import ColumnDataSource, HoverTool, Legend
 from bokeh.io import output_file
 from bokeh.plotting import figure, save
+from pandas import __version__ as pd_version
+from bokeh import __version__ as bokeh_version
+from matplotlib import __version__ as mpl_version
 
 
 def plot_coverage_static(df, output):
@@ -49,6 +52,7 @@ if __name__ == '__main__':
                         help='Specify a bed file with coverage information',
                         nargs='+')
     parser.add_argument('-o','--output', help='Specify the output file')
+    parser.add_argument('-v','--version',help='Specify a yaml file with version information')
     args = parser.parse_args()
 
     dfs = []
@@ -65,3 +69,9 @@ if __name__ == '__main__':
         plot_coverage_dynamic(df, args.output)
     else:
         raise ValueError('Output file extension not supported. Please specify a .png or .html file.')
+    
+    if args.version:
+        with open(args.version, 'a') as f:
+            f.write(f'pandas: {pd_version}\n')
+            f.write(f'bokeh: {bokeh_version}\n')
+            f.write(f'matplotlib: {mpl_version}\n')
