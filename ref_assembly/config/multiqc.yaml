@@ -1,4 +1,8 @@
 top_modules:
   - "fastp"
-  - "picard"
+  - "samtools"
+  - "bowtie2"
+fastp:
+  s_name_filenames: true
+disable_version_detection: true
    

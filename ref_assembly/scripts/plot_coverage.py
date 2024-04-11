@@ -1,12 +1,15 @@
 import os
+import yaml
 import argparse
 import matplotlib.pyplot as plt
+from matplotlib import __version__ as matplotlib_version
+from bokeh import __version__ as bokeh_version
+from pandas import __version__ as pandas_version
 import pandas as pd
 from bokeh.plotting import figure
 from bokeh.models import ColumnDataSource, HoverTool, Legend
 from bokeh.io import output_file
 from bokeh.plotting import figure, save
-
 
 def plot_coverage_static(df, output):
     fig, ax = plt.subplots()
@@ -43,12 +46,26 @@ def plot_coverage_dynamic(df,output):
     output_file(output)
     save(plot)
 
+def write_version_to_yaml(filename):
+    data = {}
+    if os.path.exists(filename):
+        with open(filename, 'r') as f:
+            data = yaml.safe_load(f) or {}
+
+    data['pandas'] = pandas_version
+    data['matplotlib'] = matplotlib_version
+    data['bokeh'] = bokeh_version
+
+    with open(filename, 'w') as f:
+        yaml.dump(data, f)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-i','--input_files',
                         help='Specify a bed file with coverage information',
                         nargs='+')
     parser.add_argument('-o','--output', help='Specify the output file')
+    parser.add_argument('-v','--version',help='Specify software versions')
     args = parser.parse_args()
 
     dfs = []
@@ -65,3 +82,6 @@ if __name__ == '__main__':
         plot_coverage_dynamic(df, args.output)
     else:
         raise ValueError('Output file extension not supported. Please specify a .png or .html file.')
+    
+    if args.version:
+        write_version_to_yaml(args.version)
