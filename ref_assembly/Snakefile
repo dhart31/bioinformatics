@@ -5,8 +5,8 @@ rule all:
 
 rule fastp_trim:
     input:
-        r1 = "raw_data/{sample}_R1.fastq",
-        r2 = "raw_data/{sample}_R2.fastq"
+        r1 = "raw_data/{sample}_dupes_R1.fastq",
+        r2 = "raw_data/{sample}_dupes_R2.fastq"
     output:
         r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
         r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz",
@@ -14,15 +14,20 @@ rule fastp_trim:
         html = "fastp_trim/{sample}.html"
     conda:
         "fastp"
+    params:
+        version = "software_mqc_versions.yaml"
     log:
-        "fastp_trim/{sample}.log"
+        out = "fastp_trim/{sample}.log",
     shell:
         """
         fastp \
         -i {input.r1} -I {input.r2} \
         -o {output.r1} -O {output.r2} \
         -j {output.json} -h {output.html} \
-        2> {log}
+        2> {log.out};
+
+        version=$(fastp --version 2>&1 | awk '{{print $2}}');
+        printf 'fastp: "%s"\n' "$version" > {params.version}
         """
 
 rule bowtie2_align:
@@ -35,41 +40,55 @@ rule bowtie2_align:
         "bowtie2"
     threads: 16
     params:
-        ref = "~/references/AF266287"
+        ref = "~/references/AF266287",
+        version = "software_mqc_versions.yaml"
     log:
         "bowtie2_align/{sample}.log"
     shell:
-        """
+        r"""
         bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} \
         --threads {threads} --sensitive-local 2> {log} |
-        samtools sort - > {output.bam}
+        samtools sort - > {output.bam};
+
+        version=$(bowtie2 --version | head -n1 | grep -oP 'version \K[\d.]+');
+        printf 'bowtie2: "%s"\n' "$version" >> {params.version}
         """
 rule samtools_rmdup:
     input:
         bam = "bowtie2_align/{sample}.bam"
     output:
-        bam = "samtools_rmdup/{sample}_rmdup.bam"
+        bam = "samtools_rmdup/{sample}.bam"
     log:
-        "samtools_rmdup/{sample}_rmdup.log"
+        "samtools_rmdup/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml"
     conda:
         "samtools"
     shell:
-        """
-        samtools rmdup {input.bam} {output.bam} > {log} 2>&1
+        r"""
+        samtools rmdup {input.bam} {output.bam} > {log} 2>&1;
+        
+        version=$(samtools --version | head -n1 | grep -oP 'samtools \K[\d.]+');
+        printf 'samtools: "%s"\n' "$version" >> {params.version}
         """
 
 rule bedtools_genomecov:
     input:
-        bam = "samtools_rmdup/{sample}_rmdup.bam"
+        bam = "samtools_rmdup/{sample}.bam"
     output:
         "bedtools_genomecov/{sample}.bed"
     conda:
         "bedtools"
     log:
         "bedtools_genomecov/{sample}_genomecov.log"
+    params:
+        version = "software_mqc_versions.yaml"
     shell:
         """
-        bedtools genomecov -d -ibam {input.bam} > {output} 2> {log}
+        bedtools genomecov -d -ibam {input.bam} > {output} 2> {log};
+
+        version=$(bedtools --version 2>&1 | awk '{{print $2}}');
+        printf 'bedtools: "%s"\n' "$version" >> {params.version}
         """
 
 rule plot_coverage:
@@ -80,17 +99,18 @@ rule plot_coverage:
     conda:
         "plot"
     params:
-        script = f"{workflow.basedir}/scripts/plot_coverage.py"
+        script = f"{workflow.basedir}/scripts/plot_coverage.py",
+        version = "software_mqc_versions.yaml"
     shell:
         """
-        python {params.script} -i {input.bedfiles} -o {output}
+        python {params.script} -i {input.bedfiles} -o {output} -v {params.version}
         """
 
 rule multiqc_report:
     input: 
         expand("fastp_trim/{sample}.json",sample=['AF266287_sample1']),
-        expand("samtools_rmdup/{sample}_rmdup.bam",sample=['AF266287_sample1']),
-        expand("bedtools_genomecov/{sample}_genomecov.txt",sample=['AF266287_sample1']),
+        expand("samtools_rmdup/{sample}.bam",sample=['AF266287_sample1']),
+        expand("bedtools_genomecov/{sample}.bed",sample=['AF266287_sample1']),
         "plot_coverage/coverage_across_reference_mqc.html"
 
     output:
