@@ -1,4 +1,13 @@
+disable_version_detection: true
 top_modules:
   - "fastp"
-  - "picard"
+  - "fastqc"
+  - "bowtie2"
+  - "samtools"
+  - "bedtools"
+  - "plot_coverage"
+fastp:
+  s_name_filenames: true
+disable_version_detection: true
+
    

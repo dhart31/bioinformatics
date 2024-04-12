@@ -1,73 +1,210 @@
+
+import os
+from snakemake.io import glob_wildcards
+
+WORKDIR = os.getcwd()
+
+if config['type'] == "illumina":
+    SAMPLES,MATE = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}_dupes_{mate}.fastq"))
+elif config['type'] == "ont":
+    SAMPLES, = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}.fastq.gz"))
+
 rule all:
     input:
         "multiqc_report.html"
 
-rule fastp:
+rule fastp_trim:
     input:
-        r1 = "raw_data/{sample}_1.fastq.gz",
-        r2 = "raw_data/{sample}_2.fastq.gz"
+        r1 = "raw_data/{sample}_dupes_R1.fastq",
+        r2 = "raw_data/{sample}_dupes_R2.fastq"
     output:
-        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp/{sample}_trimmed_R2.fastq.gz",
-        json = "fastp/{sample}.json",
-        html = "fastp/{sample}.html"
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq",
+        json = "fastp_trim/{sample}.json",
+        html = "fastp_trim/{sample}.html"
     conda:
         "fastp"
+    params:
+        version = "software_mqc_versions.yaml"
+    log:
+        "fastp_trim/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml"
     shell:
         """
         fastp \
         -i {input.r1} -I {input.r2} \
         -o {output.r1} -O {output.r2} \
-        -j {output.json} -h {output.html}
+        -j {output.json} -h {output.html} \
+        2> {log};
+
+        version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
+        echo "fastp: "$version > {params.version}
         """
 
-rule bowtie2:
+rule fastqc:
     input:
-        r1 = "fastp/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp/{sample}_trimmed_R2.fastq.gz"
+        reads = "raw_data/{sample}.fastq.gz"
     output:
-        bam = "bowtie2/{sample}.bam"
+        html = "fastqc/{sample}/{sample}_fastqc.html",
+    conda:
+        "fastqc"
+    params:
+        folder = "fastqc/{sample}"
+    log: 
+        "fastqc/{sample}.log"
+    shell:
+        """
+        mkdir -p {params.folder}
+        fastqc -o {params.folder} {input} 2>{log}
+        """ 
+
+rule bowtie2_align:
+    input:
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq"
+    output:
+        bam = "bowtie2_align/{sample}.bam"
     conda:
         "bowtie2"
     threads: 16
+    log:
+        "bowtie2_align/{sample}.log"
     params:
-        ref = "~/references/AF266287"
+        ref = "~/references/AF266287",
+        version = "software_mqc_versions.yaml"
     shell:
-        """
+        r"""
         bowtie2 -x {params.ref} -1 {input.r1} -2 {input.r2} \
-        --threads {threads} --sensitive-local |
-        samtools sort - > {output.bam}
+        --threads {threads} --sensitive-local 2> {log} |
+        samtools sort - > {output.bam};
+
+        echo "bowtie2_align:" >> {params.version}
+        version=$(bowtie2 --version 2>&1 | head -n 1 | cut -f 3 -d ' ');
+        echo "  bowtie2: "$version >> {params.version}
+        version=$(samtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
+        echo "  samtools: "$version >> {params.version}
         """
 
-rule picard:
+rule minimap2_align:
     input:
-        bam = "bowtie2/{sample}.bam"
+        reads = "raw_data/{sample}.fastq.gz"
     output:
-        bam = "picard/{sample}_duplicates_removed.bam",
-        metrics = "picard/{sample}_picard.metrics"
+        bam = "minimap2_align/{sample}.bam"
     conda:
-        "picard"
+        "minimap2"
+    threads: 16
+    log:
+        "minimap2_align/{sample}.log"
+    params:
+        ref = "~/references/AF266287.fasta",
+        version = "software_mqc_versions.yaml"
+    shell:
+        r"""
+        minimap2 -ax map-ont -t {threads} {params.ref} {input.reads} 2> {log} |
+        samtools sort - > {output.bam};
+
+        echo "minimap2_align:" >> {params.version}
+        version=$(minimap2 --version | cut -f 2 -d ' ');
+        echo "  minimap2: "$version >> {params.version}
+        version=$(samtools --version | cut -f 2 -d ' ');
+        echo "  samtools: "$version >> {params.version}
+        """
+
+def get_sample_alignment(sample):
+    alignment_type = config['type']
+    if alignment_type == "illumina":
+        return "bowtie2_align/{sample}.bam"
+    elif alignment_type == "ont":
+        return "minimap2_align/{sample}.bam"
+    else:
+        raise ValueError(f"Unknown alignment type: {alignment_type}")
+
+rule samtools_rmdup:
+    input:
+        bam = lambda wildcards: get_sample_alignment(wildcards.sample)
+    output:
+        bam = "samtools_rmdup/{sample}.bam"
+    log:
+        "samtools_rmdup/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml",
+        flags = "-s" if config['type'] == "ont" else ""
+
+    conda:
+        "samtools"
     shell:
         """
-        picard MarkDuplicates \
-        -I {input.bam} \
-        -O {output.bam} \
-        -M {output.metrics} \
-        --REMOVE_DUPLICATES
+        samtools rmdup {params.flags} {input.bam} {output.bam} > {log} 2>&1;
+
+        version=$(samtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
+        echo "samtools: "$version >> {params.version}
         """
 
-rule multiqc:
-    input: 
-        expand("fastp/{sample}.json", sample = ['ERR11523536']),
-        expand("picard/{sample}_duplicates_removed.bam", sample = ['ERR11523536']),
-        expand("picard/{sample}_picard.metrics", sample = ['ERR11523536'])
+rule bedtools_genomecov:
+    input:
+        bam = "samtools_rmdup/{sample}.bam"
+    output:
+        "bedtools_genomecov/{sample}.bed"
+    conda:
+        "bedtools"
+    log:
+        "bedtools_genomecov/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml"
+    shell:
+        """
+        bedtools genomecov -d -ibam {input.bam} > {output} 2> {log};
+
+        version=$(bedtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
+        echo "bedtools: "$version >> {params.version}
+        """
+
+rule plot_coverage:
+    input:
+        bedfiles = expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES)
+    output:
+        "plot_coverage/coverage_across_reference_mqc.html"
+    conda:
+        "plot"
+    params:
+        script = f"{workflow.basedir}/scripts/plot_coverage.py",
+        version = "software_mqc_versions.yaml"
+    shell:
+        """
+        python {params.script} -i {input.bedfiles} -o {output} -v {params.version};
+        """
+
+def collect_files():
+    if config['type'] == "illumina":
+        return (
+            expand("fastp_trim/{sample}.json",sample=SAMPLES),
+            expand("samtools_rmdup/{sample}.bam",sample=SAMPLES),
+            expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES),
+            "plot_coverage/coverage_across_reference_mqc.html" 
+        )
+    elif config['type'] == "ont":
+        return (
+            expand("fastqc/{sample}/{sample}_fastqc.html",sample=SAMPLES),
+            expand("samtools_rmdup/{sample}.bam",sample=SAMPLES),
+            expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES),
+            "plot_coverage/coverage_across_reference_mqc.html"
+        )
+    else:
+        raise ValueError(f"Unknown alignment type: {config['type']}")
+
+rule multiqc_report:
+    input:
+        collect_files()
     output:
         "multiqc_report.html"
     conda:
         "multiqc"
     params: 
-        config = "~/repositories/bioinformatics_pipelines/ref_assembly/config/multiqc.yaml"
+        config = f"{workflow.basedir}/config/multiqc.yaml"
     shell:
         """
-        multiqc --config {params.config} -f .
+        multiqc --config {params.config} -f .;
+        version=$(multiqc --version | cut -f3 -d' ');
+        echo "multiqc: "$version >> software_mqc_versions.yaml
         """
