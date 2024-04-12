@@ -1,4 +1,14 @@
 
+import os
+from snakemake.io import glob_wildcards
+
+WORKDIR = os.getcwd()
+
+if config['type'] == "illumina":
+    SAMPLES,MATE = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}_dupes_{mate}.fastq"))
+elif config['type'] == "ont":
+    SAMPLES, = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}.fastq.gz"))
+    
 rule all:
     input:
         "multiqc_report.html"
@@ -8,8 +18,8 @@ rule fastp_trim:
         r1 = "raw_data/{sample}_dupes_R1.fastq",
         r2 = "raw_data/{sample}_dupes_R2.fastq"
     output:
-        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz",
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq",
         json = "fastp_trim/{sample}.json",
         html = "fastp_trim/{sample}.html"
     conda:
@@ -32,10 +42,25 @@ rule fastp_trim:
         echo "fastp: "$version > {params.version}
         """
 
+rule fastqc:
+    input:
+        reads = "raw_data/{sample}.fastq.gz"
+    output:
+        html = "fastqc/{sample}_fastqc.html",
+    conda:
+        "fastqc"
+    params:
+        folder = "fastqc/{sample}"
+    shell:
+        """
+        mkdir {params.folder}
+        fastqc -o {output.html} {input}
+        """ 
+
 rule bowtie2_align:
     input:
-        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq"
     output:
         bam = "bowtie2_align/{sample}.bam"
     conda:
@@ -58,9 +83,44 @@ rule bowtie2_align:
         version=$(samtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
         echo "  samtools: "$version >> {params.version}
         """
+
+rule minimap2_align:
+    input:
+        reads = "raw_data/{sample}.fastq.gz"
+    output:
+        bam = "minimap2_align/{sample}.bam"
+    conda:
+        "minimap2"
+    threads: 16
+    log:
+        "minimap2_align/{sample}.log"
+    params:
+        ref = "~/references/AF266287",
+        version = "software_mqc_versions.yaml"
+    shell:
+        r"""
+        minimap2 -ax map-ont -t {threads} {params.ref} {input.reads} |
+        samtools sort - > {output.bam};
+
+        echo "minimap2_align:" >> {params.version}
+        version=$(minimap2 --version | cut -f 2 -d ' ');
+        echo "  minimap2: "$version >> {params.version}
+        version=$(samtools --version | cut -f 2 -d ' ');
+        echo "  samtools: "$version >> {params.version}
+        """
+
+def get_sample_alignment(sample):
+    alignment_type = config['type']
+    if alignment_type == "illumina":
+        return "bowtie2_align/{sample}.bam"
+    elif alignment_type == "ont":
+        return "minimap2_align/{sample}.bam"
+    else:
+        raise ValueError(f"Unknown alignment type: {alignment_type}")
+
 rule samtools_rmdup:
     input:
-        bam = "bowtie2_align/{sample}.bam"
+        bam = lambda wildcards: get_sample_alignment(wildcards.sample)
     output:
         bam = "samtools_rmdup/{sample}.bam"
     log:
@@ -100,7 +160,7 @@ rule bedtools_genomecov:
 
 rule plot_coverage:
     input:
-        bedfiles = expand("bedtools_genomecov/{sample}.bed",sample=['AF266287_sample1'])
+        bedfiles = expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES)
     output:
         "plot_coverage/coverage_across_reference_mqc.html"
     conda:
@@ -113,13 +173,28 @@ rule plot_coverage:
         python {params.script} -i {input.bedfiles} -o {output} -v {params.version};
         """
 
-rule multiqc_report:
-    input: 
-        expand("fastp_trim/{sample}.json",sample=['AF266287_sample1']),
-        expand("samtools_rmdup/{sample}.bam",sample=['AF266287_sample1']),
-        expand("bedtools_genomecov/{sample}.bed",sample=['AF266287_sample1']),
-        "plot_coverage/coverage_across_reference_mqc.html"
+def collect_files():
+    if config['type'] == "illumina":
+        return (
+            expand("fastp_trim/{sample}.json",sample=SAMPLES),
+            expand("samtools_rmdup/{sample}.bam",sample=SAMPLES),
+            expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES),
+            "plot_coverage/coverage_across_reference_mqc.html" 
+        )
+    elif config['type'] == "ont":
+        return (
+            expand("fastqc/{sample}_fastqc.html",sample=SAMPLES),
+            expand("samtools_rmdup/{sample}.bam",sample=SAMPLES),
+            expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES),
+            "plot_coverage/coverage_across_reference_mqc.html"
+        )
+    else:
+        raise ValueError(f"Unknown alignment type: {config['type']}")
 
+
+rule multiqc_report:
+    input:
+        collect_files()
     output:
         "multiqc_report.html"
     conda:
