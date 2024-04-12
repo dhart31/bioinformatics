@@ -1,6 +1,7 @@
 disable_version_detection: true
 top_modules:
   - "fastp"
+  - "fastqc"
   - "bowtie2"
   - "samtools"
   - "bedtools"

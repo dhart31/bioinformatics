@@ -8,7 +8,7 @@ if config['type'] == "illumina":
     SAMPLES,MATE = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}_dupes_{mate}.fastq"))
 elif config['type'] == "ont":
     SAMPLES, = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}.fastq.gz"))
-    
+
 rule all:
     input:
         "multiqc_report.html"
@@ -46,15 +46,17 @@ rule fastqc:
     input:
         reads = "raw_data/{sample}.fastq.gz"
     output:
-        html = "fastqc/{sample}_fastqc.html",
+        html = "fastqc/{sample}/{sample}_fastqc.html",
     conda:
         "fastqc"
     params:
         folder = "fastqc/{sample}"
+    log: 
+        "fastqc/{sample}.log"
     shell:
         """
-        mkdir {params.folder}
-        fastqc -o {output.html} {input}
+        mkdir -p {params.folder}
+        fastqc -o {params.folder} {input} 2>{log}
         """ 
 
 rule bowtie2_align:
@@ -95,11 +97,11 @@ rule minimap2_align:
     log:
         "minimap2_align/{sample}.log"
     params:
-        ref = "~/references/AF266287",
+        ref = "~/references/AF266287.fasta",
         version = "software_mqc_versions.yaml"
     shell:
         r"""
-        minimap2 -ax map-ont -t {threads} {params.ref} {input.reads} |
+        minimap2 -ax map-ont -t {threads} {params.ref} {input.reads} 2> {log} |
         samtools sort - > {output.bam};
 
         echo "minimap2_align:" >> {params.version}
@@ -126,14 +128,14 @@ rule samtools_rmdup:
     log:
         "samtools_rmdup/{sample}.log"
     params:
-        version = "software_mqc_versions.yaml"
+        version = "software_mqc_versions.yaml",
+        flags = "-s" if config['type'] == "ont" else ""
+
     conda:
         "samtools"
-    params:
-        version = "software_mqc_versions.yaml"
     shell:
         """
-        samtools rmdup {input.bam} {output.bam} > {log} 2>&1;
+        samtools rmdup {params.flags} {input.bam} {output.bam} > {log} 2>&1;
 
         version=$(samtools --version 2>&1 | head -n 1 | cut -f 2 -d ' ');
         echo "samtools: "$version >> {params.version}
@@ -183,14 +185,13 @@ def collect_files():
         )
     elif config['type'] == "ont":
         return (
-            expand("fastqc/{sample}_fastqc.html",sample=SAMPLES),
+            expand("fastqc/{sample}/{sample}_fastqc.html",sample=SAMPLES),
             expand("samtools_rmdup/{sample}.bam",sample=SAMPLES),
             expand("bedtools_genomecov/{sample}.bed",sample=SAMPLES),
             "plot_coverage/coverage_across_reference_mqc.html"
         )
     else:
         raise ValueError(f"Unknown alignment type: {config['type']}")
-
 
 rule multiqc_report:
     input:
