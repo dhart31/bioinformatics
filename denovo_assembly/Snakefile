@@ -5,7 +5,9 @@ SAMPLES,MATE = glob_wildcards(os.path.join(WORKDIR,"raw_data/{sample}_dupes_{mat
 
 rule all:
     input:
-        expand("spades_assemble/{sample}/contigs.fasta", sample=SAMPLES)
+        "multiqc_report.html"
+        #expand("quast/{sample}/report.tsv", sample=SAMPLES)
+
 rule fastp_trim:
     input:
         r1 = "raw_data/{sample}_dupes_R1.fastq",
@@ -63,19 +65,54 @@ rule spades_assemble:
         1> {log.out} 2> {log.error};
 
         version=$(spades.py --version | cut -f 4 -d ' ');
-        echo "spades: "$version > {params.version}
+        echo "spades: "$version >> {params.version}
         """
 
-# # Rule for post-assembly analysis
-# rule analyze:
-#     input:
-#         assembly
-#     output:
-#         "path/to/assembly_stats.txt"
-#     shell:
-#         "quast.py {input} -o path/to/assembly_stats"
+# Rule for post-assembly analysis
+rule quast_qc:
+    input:
+        contigs = "spades_assemble/{sample}/contigs.fasta",
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq",
+        u1 = "fastp_trim/{sample}_trimmed_U1.fastq",
+        u2 = "fastp_trim/{sample}_trimmed_U2.fastq"
+    output:
+        "quast/{sample}/report.tsv"
+    conda:
+        "quast"
+    params:
+        reference = "~/references/AF266287.fasta",
+        quast_dir = lambda wildcards, output: os.path.dirname(output[0]),
+        version = "software_mqc_versions.yaml"
+    log:
+        error = "quast/{sample}_error.log",
+        output = "quast/{sample}_output.log"
+    shell:
+        """
+        quast.py {input.contigs} \
+        -r {params.reference} \
+        -1 {input.r1} -2 {input.r2} \
+        --single {input.u1} \
+        --single {input.u2} \
+        -o {params.quast_dir}\
+        -L \
+        1> {log.output} 2> {log.error};
+        version=$(quast --version | grep QUAST | cut -f 2 -d ' ');
+        echo "quast: "$version >> {params.version}
+        """
 
-# # Define the final target
-# rule all:
-#     input:
-#         "path/to/assembly_stats.txt"
+rule multiqc_report:
+    input:
+        expand("quast/{sample}/report.tsv", sample=SAMPLES)
+    output:
+        "multiqc_report.html"
+    conda:
+        "multiqc"
+    params: 
+        config = f"{workflow.basedir}/config/multiqc.yaml"
+    shell:
+        """
+        multiqc --config {params.config} -f .;
+        version=$(multiqc --version | cut -f3 -d' ');
+        echo "multiqc: "$version >> software_mqc_versions.yaml
+        """
