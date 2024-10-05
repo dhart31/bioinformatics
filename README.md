@@ -1,2 +1,3 @@
 # This repository contains a set of standard bioinformatics pipelines, including:
-- [Reference-based Assembly](https://github.com/dhart31/bioinformatics_pipelines/blob/ref_assembly/ref_assembly/Snakefile)
+- [Reference-based Mapping](/ref_assembly/Snakefile)
+- [De novo Assembly](/denovo_assembly/Snakefile)
