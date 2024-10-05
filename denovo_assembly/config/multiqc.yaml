@@ -1,0 +1,9 @@
+disable_version_detection: true
+top_modules:
+  - "fastp"
+  - quast
+fastp:
+  s_name_filenames: true
+disable_version_detection: true
+
+   
