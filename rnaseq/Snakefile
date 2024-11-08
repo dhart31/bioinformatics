@@ -1,0 +1,30 @@
+
+rule all:
+    input:
+        "multiqc_report.html"
+
+
+rule infer_strandness:
+    input:
+        r1 = "raw_data/{sample}_R1.fastq",
+        r2 = "raw_data/{sample}_R2.fastq"
+    output:
+        r1 = "infer_strandness/{sample}_R1.fastq",
+        r2 = "infer_strandness/{sample}_R2.fastq"
+    conda:
+        "fq"
+    params:
+        probability = 0.1,
+        record_count = 10000
+    log:
+        "infer_strandness/{sample}.log"
+    shell:
+        """
+        fq subsample \
+        --probability {params.probability} \
+        --record-count {params.record_count} \
+        {input.r1} {input.r2} \
+        {output.r1} {output.r2}
+        """
+
+
