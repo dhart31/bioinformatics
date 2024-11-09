@@ -3,28 +3,90 @@ rule all:
     input:
         "multiqc_report.html"
 
-
-rule infer_strandness:
+rule fastp_trim:
     input:
-        r1 = "raw_data/{sample}_R1.fastq",
-        r2 = "raw_data/{sample}_R2.fastq"
+        r1 = "raw_data/{sample}_R1.fastq.gz",
+        r2 = "raw_data/{sample}_R2.fastq.gz"
     output:
-        r1 = "infer_strandness/{sample}_R1.fastq",
-        r2 = "infer_strandness/{sample}_R2.fastq"
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz",
+        json = "fastp_trim/{sample}.json",
+        html = "fastp_trim/{sample}.html"
     conda:
-        "fq"
+        "fastp"
     params:
-        probability = 0.1,
-        record_count = 10000
+        version = "software_mqc_versions.yaml"
     log:
-        "infer_strandness/{sample}.log"
+        "fastp_trim/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml"
     shell:
         """
-        fq subsample \
-        --probability {params.probability} \
-        --record-count {params.record_count} \
-        {input.r1} {input.r2} \
-        {output.r1} {output.r2}
+        fastp \
+        -i {input.r1} -I {input.r2} \
+        -o {output.r1} -O {output.r2} \
+        -j {output.json} -h {output.html} \
+        2> {log};
+
+        version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
+        echo "fastp: "$version > {params.version}
         """
 
+rule align_star:
+    input:
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
+    output:
+        bam = "align_star/{sample}.bam"
+    conda:
+        "star"
+    params:
+        genome = config["genome_index"]
+    threads: 16
+    shell:
+        """
+        STAR \
+        --runThreadN {threads} \
+        --genomeDir {params.genome} \
+        --readFilesIn {input.r1} {input.r2} \
+        --readFilesCommand zcat \
+        --outFileNamePrefix align_star/{wildcards.sample} \
+        --outSAMtype BAM SortedByCoordinate \
+        > {log} 2>&1
+        """
 
+rule featurecounts_subread:
+    input:
+        bam = "align_star/{sample}.bam"
+    output:
+        counts = "featurecounts/{sample}.counts"
+    conda:
+        "subread"
+    params:
+        gtf = config["gtf"]
+    threads: 4   
+    shell:
+        """
+        featureCounts \
+        -T {threads} \
+        -a {params.gtf} \
+        -o {output.counts} \
+        {input.bam} \
+        > {log} 2>&1
+        """
+
+rule multiqc:
+    input:
+        expand("fastp_trim/{sample}.json", sample=config["samples"]),
+        expand("align_star/{sample}Log.final.out", sample=config["samples"]),
+        expand("featurecounts/{sample}.counts", sample=config["samples"])
+    output:
+        "multiqc_report.html"
+    conda:
+        "multiqc"
+    params:
+        config = f"{workflow.basedir}/config/multiqc.yaml"
+    shell:
+        """
+        multiqc --config {params.config} -f .;
+        """
