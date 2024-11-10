@@ -16,7 +16,7 @@ my $total_bases = 0;
 my $repetitive = 0;
 my $non_repetitive = 0;
 # Open the input file
-open my $fh, '<', $input_file or die "Could not open file '$input_file': $!";
+open(my $fh, '<', $input_file) or die("Could not open file '$input_file': $!");
 
 # Process the file
 while (my $line = <$fh>) {
@@ -27,7 +27,7 @@ while (my $line = <$fh>) {
 }
 
 # Close the file
-close $fh;
+close($fh);
 
 # Print the results in a tabular format
 print "Base\tPercentage\tCount\n";
