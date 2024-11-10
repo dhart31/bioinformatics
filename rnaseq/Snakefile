@@ -1,7 +1,8 @@
 
 rule all:
     input:
-        "multiqc_report.html"
+        #"multiqc_report.html"
+        config["genome_index"]
 
 rule fastp_trim:
     input:
@@ -30,6 +31,29 @@ rule fastp_trim:
 
         version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
         echo "fastp: "$version > {params.version}
+        """
+
+rule index_star:
+    input:
+        genome = config["genome_fasta"],
+        gtf = config["gtf"]
+    output:
+        index = directory(config["genome_index"])
+    conda:
+        "star"
+    log:
+        "star_index.log"
+    threads: 16
+    shell:
+        """
+        STAR \
+        --runThreadN {threads} \
+        --runMode genomeGenerate \
+        --genomeDir {output.index}\
+        --genomeFastaFiles {input.genome} \
+        --sjdbGTFfile {input.gtf} \
+        --sjdbOverhang 100 \
+        > {log} 2>&1
         """
 
 rule align_star:
@@ -75,18 +99,18 @@ rule featurecounts_subread:
         > {log} 2>&1
         """
 
-rule multiqc:
-    input:
-        expand("fastp_trim/{sample}.json", sample=config["samples"]),
-        expand("align_star/{sample}Log.final.out", sample=config["samples"]),
-        expand("featurecounts/{sample}.counts", sample=config["samples"])
-    output:
-        "multiqc_report.html"
-    conda:
-        "multiqc"
-    params:
-        config = f"{workflow.basedir}/config/multiqc.yaml"
-    shell:
-        """
-        multiqc --config {params.config} -f .;
-        """
+# rule multiqc:
+#     input:
+#         expand("fastp_trim/{sample}.json", sample=config["samples"]),
+#         expand("align_star/{sample}Log.final.out", sample=config["samples"]),
+#         expand("featurecounts/{sample}.counts", sample=config["samples"])
+#     output:
+#         "multiqc_report.html"
+#     conda:
+#         "multiqc"
+#     params:
+#         config = f"{workflow.basedir}/config/multiqc.yaml"
+#     shell:
+#         """
+#         multiqc --config {params.config} -f .;
+#         """
