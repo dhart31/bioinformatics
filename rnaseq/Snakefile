@@ -1,12 +1,24 @@
+import pandas as pd
 SAMPLES, = glob_wildcards("raw_data/{sample}.read1.fastq.gz")
+PLATFORM_UNITS = ['CXX1234-ACTGAC.1', 'CXX1234-TGACAC.1', 'CXX1234-CTGACT.1', 'CXX1234-TGACAC.1', 'CXX1234-GACACT.1', 'CXX1234-ACACTG.1']
+df = pd.DataFrame(
+    {
+    "sample": SAMPLES,
+    "platform_unit": PLATFORM_UNITS},
+    index=SAMPLES)
+df['rg_id'] = df['sample'].str.extract(r'(.*_Rep\d+)')
+df['rg_sm'] = df['sample'].str.extract(r'(.{3})_Rep\d+')
+df['rg_lb'] = df['sample'].str.extract(r'(.*_Rep\d+_ERCC-Mix\d+)')
+print(df.loc[:, ["rg_id", "rg_sm", "rg_lb"]])
+#quit()
 rule all:
     input:
-        expand("results/hisat2_align/{sample}.bam", sample=SAMPLES),
+        expand("results/hisat2_align/{sample}.bam", sample=df["sample"]),
         #expand("results/fastp_trim/{sample}.trimmed.read1.fastq.gz", sample=SAMPLES),
         #expand("results/fastp_trim/{sample}.trimmed.read2.fastq.gz", sample=SAMPLES),
         #"results/strandedness.txt"
-        "results/multiqc_report.html"
-        #config["genome_index"]
+        "results/multiqc_report.html",
+        #directory("ref/hisat2_index")
 
 rule check_strandedness:
     input:
@@ -59,47 +71,60 @@ rule fastp_trim:
         echo "fastp: "$version > {params.version}
         """
 
-def get_read_group_labels(wildcards):
-    rg_id_match = re.search(r'.*_Rep\d+', wildcards.sample)
-    sample_match = re.search(r'(.{3})_Rep\d+', wildcards.sample)
-    library_match = re.search(r'.*_Rep\d+_ERCC-Mix\d+', wildcards.sample)
-    
-    if rg_id_match and sample_match and library_match:
-        rg_id = rg_id_match.group()
-        sample = sample_match.group(1)
-        library = library_match.group()
-    else:
-        raise ValueError(f"Pattern not found in sample: {wildcards.sample}")
-    
-    return {
-        "rg_id": rg_id,
-        "sample": sample,
-        "library": library
-    }
+rule hisat2_index:
+    input:
+        gtf = config["gtf"],
+        fasta = config["genome_fasta"]
+    output:
+        index = directory("ref/hisat2_index")
+    conda:
+        "hisat2"
+    log:
+        "logs/hisat2_index.log"
+    shell:
+        """
+        mkdir -p {output.index};
+        hisat2_extract_splice_sites.py {input.gtf} > ref/splice_sites.txt;
+        hisat2_extract_exons.py {input.gtf} > ref/exons.txt;
+        hisat2-build -p 16 \
+        --ss ref/splice_sites.txt \
+        --exon ref/exons.txt \
+        {input.fasta} {output.index}/hisat2_index > {log} 2>&1
+        """
+
 
 rule hisat2_align:
     input:
+        index=directory("ref/hisat2_index/"),
         r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz"
     output:
         bam = "results/hisat2_align/{sample}.bam"
     conda:
         "hisat2"
+    log:
+        "logs/hisat2_align/{sample}.log"
     threads: 16
     params:
-        read_groups=get_read_group_labels
+        read_groups = lambda wildcards: df.loc[wildcards.sample, ["rg_id", "rg_sm", "rg_lb"]],
+        platform_unit = lambda wildcards: df.loc[wildcards.sample, "platform_unit"]
     shell:
         """
         hisat2 -p {threads} \
         --rg-id {params.read_groups[rg_id]}\
-        --rg SM:{params.read_groups[sample]}\
-        --rg LB:{params.read_groups[library]}\
+        --rg SM:{params.read_groups[rg_sm]}\
+        --rg LB:{params.read_groups[rg_lb]}\
         --rg PL:ILLUMINA\
-        --rg PU:CXX1234-ACTGAC.1 \
-        -x $RNA_REF_INDEX --dta --rna-strandness RF \
-        -1 {input.r1} \ 
+        --rg PU:{params.platform_unit} \
+        --dta \
+        --rna-strandness RF \
+        -x {input.index}/hisat2_index\
+        -1 {input.r1} \
         -2 {input.r2} \
-        -S {output.bam}
+        -S {output.bam} \
+        > {log} 2>&1;
+
+        samtools sort -@ {threads} -o {output.bam} {output.bam};
         """
 
 # rule index_star:
