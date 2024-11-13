@@ -1,8 +1,11 @@
-
+SAMPLES, = glob_wildcards("raw_data/{sample}.read1.fastq.gz")
 rule all:
     input:
-        "strandedness.txt"
-        #"multiqc_report.html"
+        expand("results/hisat2_align/{sample}.bam", sample=SAMPLES),
+        #expand("results/fastp_trim/{sample}.trimmed.read1.fastq.gz", sample=SAMPLES),
+        #expand("results/fastp_trim/{sample}.trimmed.read2.fastq.gz", sample=SAMPLES),
+        #"results/strandedness.txt"
+        "results/multiqc_report.html"
         #config["genome_index"]
 
 rule check_strandedness:
@@ -12,7 +15,7 @@ rule check_strandedness:
         r1 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz",
         r2 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
     output:
-        "strandedness.txt"
+        "results/strandedness.txt"
     log:
         "logs/strandedness.log"
     conda:
@@ -29,19 +32,19 @@ rule check_strandedness:
 
 rule fastp_trim:
     input:
-        r1 = "raw_data/{sample}_R1.fastq.gz",
-        r2 = "raw_data/{sample}_R2.fastq.gz"
+        r1 = "raw_data/{sample}.read1.fastq.gz",
+        r2 = "raw_data/{sample}.read2.fastq.gz"
     output:
-        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz",
-        json = "fastp_trim/{sample}.json",
-        html = "fastp_trim/{sample}.html"
+        r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
+        r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz",
+        json = "results/fastp_trim/{sample}.json",
+        html = "results/fastp_trim/{sample}.html"
     conda:
         "fastp"
     params:
         version = "software_mqc_versions.yaml"
     log:
-        "fastp_trim/{sample}.log"
+        "logs/fastp_trim/{sample}.log"
     params:
         version = "software_mqc_versions.yaml"
     shell:
@@ -54,6 +57,49 @@ rule fastp_trim:
 
         version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
         echo "fastp: "$version > {params.version}
+        """
+
+def get_read_group_labels(wildcards):
+    rg_id_match = re.search(r'.*_Rep\d+', wildcards.sample)
+    sample_match = re.search(r'(.{3})_Rep\d+', wildcards.sample)
+    library_match = re.search(r'.*_Rep\d+_ERCC-Mix\d+', wildcards.sample)
+    
+    if rg_id_match and sample_match and library_match:
+        rg_id = rg_id_match.group()
+        sample = sample_match.group(1)
+        library = library_match.group()
+    else:
+        raise ValueError(f"Pattern not found in sample: {wildcards.sample}")
+    
+    return {
+        "rg_id": rg_id,
+        "sample": sample,
+        "library": library
+    }
+
+rule hisat2_align:
+    input:
+        r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
+        r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz"
+    output:
+        bam = "results/hisat2_align/{sample}.bam"
+    conda:
+        "hisat2"
+    threads: 16
+    params:
+        read_groups=get_read_group_labels
+    shell:
+        """
+        hisat2 -p {threads} \
+        --rg-id {params.read_groups[rg_id]}\
+        --rg SM:{params.read_groups[sample]}\
+        --rg LB:{params.read_groups[library]}\
+        --rg PL:ILLUMINA\
+        --rg PU:CXX1234-ACTGAC.1 \
+        -x $RNA_REF_INDEX --dta --rna-strandness RF \
+        -1 {input.r1} \ 
+        -2 {input.r2} \
+        -S {output.bam}
         """
 
 # rule index_star:
@@ -102,38 +148,38 @@ rule fastp_trim:
 #         > {log} 2>&1
 #         """
 
-rule featurecounts_subread:
-    input:
-        bam = "align_star/{sample}.bam"
-    output:
-        counts = "featurecounts/{sample}.counts"
-    conda:
-        "subread"
-    params:
-        gtf = config["gtf"]
-    threads: 4   
-    shell:
-        """
-        featureCounts \
-        -T {threads} \
-        -a {params.gtf} \
-        -o {output.counts} \
-        {input.bam} \
-        > {log} 2>&1
-        """
-
-# rule multiqc:
+# rule featurecounts_subread:
 #     input:
-#         expand("fastp_trim/{sample}.json", sample=config["samples"]),
-#         expand("align_star/{sample}Log.final.out", sample=config["samples"]),
-#         expand("featurecounts/{sample}.counts", sample=config["samples"])
+#         bam = "align_star/{sample}.bam"
 #     output:
-#         "multiqc_report.html"
+#         counts = "featurecounts/{sample}.counts"
 #     conda:
-#         "multiqc"
+#         "subread"
 #     params:
-#         config = f"{workflow.basedir}/config/multiqc.yaml"
+#         gtf = config["gtf"]
+#     threads: 4   
 #     shell:
 #         """
-#         multiqc --config {params.config} -f .;
+#         featureCounts \
+#         -T {threads} \
+#         -a {params.gtf} \
+#         -o {output.counts} \
+#         {input.bam} \
+#         > {log} 2>&1
 #         """
+
+rule multiqc:
+    input:
+        expand("results/fastp_trim/{sample}.json", sample=SAMPLES)
+        #expand("align_star/{sample}Log.final.out", sample=config["samples"]),
+        #expand("featurecounts/{sample}.counts", sample=config["samples"])
+    output:
+        "results/multiqc_report.html"
+    conda:
+        "multiqc"
+    params:
+        config = f"{workflow.basedir}/config/multiqc.yaml"
+    shell:
+        """
+        multiqc -f results -o results;
+        """
