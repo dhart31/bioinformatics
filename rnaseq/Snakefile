@@ -1,8 +1,31 @@
 
 rule all:
     input:
+        "strandedness.txt"
         #"multiqc_report.html"
-        config["genome_index"]
+        #config["genome_index"]
+
+rule check_strandedness:
+    input:
+        gtf = config["gtf"],
+        transcripts = config["transcripts"],
+        r1 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz",
+        r2 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
+    output:
+        "strandedness.txt"
+    log:
+        "logs/strandedness.log"
+    conda:
+        "how_are_we_stranded_here"
+    shell:
+        """
+        check_strandedness \
+        --gtf {input.gtf}\
+        --transcripts {input.transcripts}\
+        --reads_1 {input.r1}\
+        --reads_2 {input.r2}\
+        > {output} 2> {log}
+        """
 
 rule fastp_trim:
     input:
@@ -33,51 +56,51 @@ rule fastp_trim:
         echo "fastp: "$version > {params.version}
         """
 
-rule index_star:
-    input:
-        genome = config["genome_fasta"],
-        gtf = config["gtf"]
-    output:
-        index = directory(config["genome_index"])
-    conda:
-        "star"
-    log:
-        "star_index.log"
-    threads: 16
-    shell:
-        """
-        STAR \
-        --runThreadN {threads} \
-        --runMode genomeGenerate \
-        --genomeDir {output.index}\
-        --genomeFastaFiles {input.genome} \
-        --sjdbGTFfile {input.gtf} \
-        --sjdbOverhang 100 \
-        > {log} 2>&1
-        """
+# rule index_star:
+#     input:
+#         genome = config["genome_fasta"],
+#         gtf = config["gtf"]
+#     output:
+#         index = directory(config["genome_index"])
+#     conda:
+#         "star"
+#     log:
+#         "star_index.log"
+#     threads: 16
+#     shell:
+#         """
+#         STAR \
+#         --runThreadN {threads} \
+#         --runMode genomeGenerate \
+#         --genomeDir {output.index}\
+#         --genomeFastaFiles {input.genome} \
+#         --sjdbGTFfile {input.gtf} \
+#         --sjdbOverhang 100 \
+#         > {log} 2>&1
+#         """
 
-rule align_star:
-    input:
-        r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
-        r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
-    output:
-        bam = "align_star/{sample}.bam"
-    conda:
-        "star"
-    params:
-        genome = config["genome_index"]
-    threads: 16
-    shell:
-        """
-        STAR \
-        --runThreadN {threads} \
-        --genomeDir {params.genome} \
-        --readFilesIn {input.r1} {input.r2} \
-        --readFilesCommand zcat \
-        --outFileNamePrefix align_star/{wildcards.sample} \
-        --outSAMtype BAM SortedByCoordinate \
-        > {log} 2>&1
-        """
+# rule align_star:
+#     input:
+#         r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
+#         r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
+#     output:
+#         bam = "align_star/{sample}.bam"
+#     conda:
+#         "star"
+#     params:
+#         genome = config["genome_index"]
+#     threads: 16
+#     shell:
+#         """
+#         STAR \
+#         --runThreadN {threads} \
+#         --genomeDir {params.genome} \
+#         --readFilesIn {input.r1} {input.r2} \
+#         --readFilesCommand zcat \
+#         --outFileNamePrefix align_star/{wildcards.sample} \
+#         --outSAMtype BAM SortedByCoordinate \
+#         > {log} 2>&1
+#         """
 
 rule featurecounts_subread:
     input:
