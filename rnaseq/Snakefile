@@ -13,9 +13,9 @@ print(df.loc[:, ["rg_id", "rg_sm", "rg_lb"]])
 #quit()
 rule all:
     input:
-        expand("results/hisat2_align/{sample}.bam", sample=df["sample"]),
-        #expand("results/fastp_trim/{sample}.trimmed.read1.fastq.gz", sample=SAMPLES),
-        #expand("results/fastp_trim/{sample}.trimmed.read2.fastq.gz", sample=SAMPLES),
+        expand("results/hisat2_align/{sample}.sorted.bam", sample = df["sample"]),
+        expand("results/hisat2_align/{sample}.flagstat", sample = df["sample"]),
+        expand("results/fastqc/{sample}.sorted_fastqc.html", sample = df["sample"]),
         #"results/strandedness.txt"
         "results/multiqc_report.html",
         #directory("ref/hisat2_index")
@@ -49,8 +49,8 @@ rule fastp_trim:
     output:
         r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz",
-        json = "results/fastp_trim/{sample}.json",
-        html = "results/fastp_trim/{sample}.html"
+        json = "results/fastp_trim/{sample}_fastqc.json",
+        html = "results/fastp_trim/{sample}_fastqc.html"
     conda:
         "fastp"
     params:
@@ -99,7 +99,7 @@ rule hisat2_align:
         r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz"
     output:
-        bam = "results/hisat2_align/{sample}.bam"
+        sam = "results/hisat2_align/{sample}.sam"
     conda:
         "hisat2"
     log:
@@ -121,10 +121,51 @@ rule hisat2_align:
         -x {input.index}/hisat2_index\
         -1 {input.r1} \
         -2 {input.r2} \
-        -S {output.bam} \
+        -S {output.sam} \
         > {log} 2>&1;
+        """
 
-        samtools sort -@ {threads} -o {output.bam} {output.bam};
+rule samtools_sort_index:
+    input:
+        bam = "results/hisat2_align/{sample}.sam"
+    output:
+        sorted_bam = "results/hisat2_align/{sample}.sorted.bam"
+    conda:
+        "samtools"
+    log:
+        "logs/sort_bam/{sample}.log"
+    threads: 16
+    shell:
+        """
+        samtools sort -@ {threads} -o {output.sorted_bam} {input.bam} > {log} 2>&1;
+        samtools index -@ {threads} {output.sorted_bam};
+        """
+
+rule samtools_flagstat:
+    input:
+        bam = "results/hisat2_align/{sample}.sorted.bam"
+    output:
+        flagstat = "results/hisat2_align/{sample}.flagstat"
+    conda:
+        "samtools"
+    shell:
+        """
+        samtools flagstat {input.bam} > {output.flagstat};
+        """
+
+rule fastqc:
+    input:
+        sorted_bam = "results/hisat2_align/{sample}.sorted.bam"
+    output:
+        html = "results/fastqc/{sample}.sorted_fastqc.html",
+        zip = "results/fastqc/{sample}.sorted_fastqc.zip"
+    conda:
+        "fastqc"
+    log:
+        "logs/fastqc/{sample}.log"
+    shell:
+        """
+        cat {input.sorted_bam} | fastqc stdin:{wildcards.sample}_fastqc -o results/fastqc > {log} 2>&1;
         """
 
 # rule index_star:
@@ -195,7 +236,8 @@ rule hisat2_align:
 
 rule multiqc:
     input:
-        expand("results/fastp_trim/{sample}.json", sample=SAMPLES)
+        expand("results/fastp_trim/{sample}.json", sample=df["sample"]),
+        expand("results/fastqc/{sample}.sorted_fastqc.html", sample=df["sample"])        
         #expand("align_star/{sample}Log.final.out", sample=config["samples"]),
         #expand("featurecounts/{sample}.counts", sample=config["samples"])
     output:
