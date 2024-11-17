@@ -16,9 +16,11 @@ rule all:
         expand("results/hisat2_align/{sample}.sorted.bam", sample = df["sample"]),
         expand("results/hisat2_align/{sample}.flagstat", sample = df["sample"]),
         expand("results/fastqc/{sample}.sorted_fastqc.html", sample = df["sample"]),
-        #"results/strandedness.txt"
+        expand("results/stringtie/quant/{sample}/{sample}.tsv", sample = df["sample"]),
+        "results/prepDE/gene_count_matrix.csv",
+        "results/prepDE/transcript_count_matrix.csv",
         "results/multiqc_report.html",
-        #directory("ref/hisat2_index")
+        #"results/prepDE_list.txt"
 
 rule check_strandedness:
     input:
@@ -49,8 +51,8 @@ rule fastp_trim:
     output:
         r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz",
-        json = "results/fastp_trim/{sample}_fastqc.json",
-        html = "results/fastp_trim/{sample}_fastqc.html"
+        json = "results/fastp_trim/{sample}.json",
+        html = "results/fastp_trim/{sample}.html"
     conda:
         "fastp"
     params:
@@ -165,74 +167,87 @@ rule fastqc:
         "logs/fastqc/{sample}.log"
     shell:
         """
-        cat {input.sorted_bam} | fastqc stdin:{wildcards.sample}_fastqc -o results/fastqc > {log} 2>&1;
+        fastqc -o results/fastqc {input.sorted_bam} > {log} 2>&1;
         """
 
-# rule index_star:
-#     input:
-#         genome = config["genome_fasta"],
-#         gtf = config["gtf"]
-#     output:
-#         index = directory(config["genome_index"])
-#     conda:
-#         "star"
-#     log:
-#         "star_index.log"
-#     threads: 16
-#     shell:
-#         """
-#         STAR \
-#         --runThreadN {threads} \
-#         --runMode genomeGenerate \
-#         --genomeDir {output.index}\
-#         --genomeFastaFiles {input.genome} \
-#         --sjdbGTFfile {input.gtf} \
-#         --sjdbOverhang 100 \
-#         > {log} 2>&1
-#         """
+rule stringtie_assemble:
+    input:
+        bam = "results/hisat2_align/{sample}.sorted.bam"
+    output:
+        gtf = "results/stringtie/assemble/{sample}.gtf"
+    conda:
+        "stringtie"
+    log:
+        "logs/stringtie/{sample}.log"
+    params:
+        strandedness = "--rf",
+        gtf = "ref/chr22_with_ERCC92.gtf"
+    threads: 16
+    shell:
+        """
+        stringtie {params.strandedness} -p {threads} \
+        -G {params.gtf} \
+        -o {output.gtf} -l {wildcards.sample} \
+        {input.bam} > {log} 2>&1;
+        """
 
-# rule align_star:
-#     input:
-#         r1 = "fastp_trim/{sample}_trimmed_R1.fastq.gz",
-#         r2 = "fastp_trim/{sample}_trimmed_R2.fastq.gz"
-#     output:
-#         bam = "align_star/{sample}.bam"
-#     conda:
-#         "star"
-#     params:
-#         genome = config["genome_index"]
-#     threads: 16
-#     shell:
-#         """
-#         STAR \
-#         --runThreadN {threads} \
-#         --genomeDir {params.genome} \
-#         --readFilesIn {input.r1} {input.r2} \
-#         --readFilesCommand zcat \
-#         --outFileNamePrefix align_star/{wildcards.sample} \
-#         --outSAMtype BAM SortedByCoordinate \
-#         > {log} 2>&1
-#         """
+rule stringtie_merge:
+    input:
+        expand("results/stringtie/assemble/{sample}.gtf", sample = df["sample"])
+    output:
+        "results/stringtie/merged.gtf"
+    conda:
+        "stringtie"
+    log:
+        "logs/stringtie/merge.log"
+    threads: 16
+    shell:
+        """
+        stringtie --merge -p {threads} \
+        -G ref/chr22_with_ERCC92.gtf \
+        -o {output} \
+        {input} > {log} 2>&1;
+        """
 
-# rule featurecounts_subread:
-#     input:
-#         bam = "align_star/{sample}.bam"
-#     output:
-#         counts = "featurecounts/{sample}.counts"
-#     conda:
-#         "subread"
-#     params:
-#         gtf = config["gtf"]
-#     threads: 4   
-#     shell:
-#         """
-#         featureCounts \
-#         -T {threads} \
-#         -a {params.gtf} \
-#         -o {output.counts} \
-#         {input.bam} \
-#         > {log} 2>&1
-#         """
+rule stringtie_quant:
+    input:
+        gtf = "results/stringtie/merged.gtf",
+        bam = "results/hisat2_align/{sample}.sorted.bam"
+    output:
+        gtf = "results/stringtie/quant/{sample}/{sample}.gtf",
+        abundance = "results/stringtie/quant/{sample}/{sample}.tsv",
+    conda:
+        "stringtie"
+    log:
+        "logs/stringtie_quant/{sample}.log"
+    threads: 16
+    shell:
+        """
+        stringtie -e -B -p {threads} \
+        -G {input.gtf} \
+        -A {output.abundance} \
+        -o {output.gtf} \
+        {input.bam} > {log} 2>&1;
+        """
+
+rule prepDE:
+    input:
+        expand("results/stringtie/quant/{sample}/{sample}.gtf", sample = df["sample"])
+    output:
+        gene = "results/prepDE/gene_count_matrix.csv",
+        transcript = "results/prepDE/transcript_count_matrix.csv"
+    params:
+        script = "scripts/prepDE.py3"
+    log:
+        "logs/prepDE.log"
+    shell:
+        """
+        python3 {params.script} \
+        -i results/stringtie/quant \
+        -g {output.gene} \
+        -t {output.transcript}
+        > {log} 2>&1;
+        """
 
 rule multiqc:
     input:
