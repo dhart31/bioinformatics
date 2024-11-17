@@ -9,23 +9,16 @@ df = pd.DataFrame(
 df['rg_id'] = df['sample'].str.extract(r'(.*_Rep\d+)')
 df['rg_sm'] = df['sample'].str.extract(r'(.{3})_Rep\d+')
 df['rg_lb'] = df['sample'].str.extract(r'(.*_Rep\d+_ERCC-Mix\d+)')
-print(df.loc[:, ["rg_id", "rg_sm", "rg_lb"]])
-#quit()
+
 rule all:
     input:
-        expand("results/hisat2_align/{sample}.sorted.bam", sample = df["sample"]),
-        expand("results/hisat2_align/{sample}.flagstat", sample = df["sample"]),
-        expand("results/fastqc/{sample}.sorted_fastqc.html", sample = df["sample"]),
-        expand("results/stringtie/quant/{sample}/{sample}.tsv", sample = df["sample"]),
+        "results/strandedness.txt",
         "results/prepDE/gene_count_matrix.csv",
         "results/prepDE/transcript_count_matrix.csv",
-        "results/multiqc_report.html",
-        #"results/prepDE_list.txt"
+        "results/multiqc_report.html"
 
 rule check_strandedness:
     input:
-        gtf = config["gtf"],
-        transcripts = config["transcripts"],
         r1 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read1.fastq.gz",
         r2 = "raw_data/HBR_Rep1_ERCC-Mix2_Build37-ErccTranscripts-chr22.read2.fastq.gz"
     output:
@@ -34,14 +27,17 @@ rule check_strandedness:
         "logs/strandedness.log"
     conda:
         "how_are_we_stranded_here"
+    params:
+        gtf = config["gtf"],
+        transcripts = config["transcripts"]
     shell:
         """
         check_strandedness \
-        --gtf {input.gtf}\
-        --transcripts {input.transcripts}\
+        --gtf {params.gtf}\
+        --transcripts {params.transcripts}\
         --reads_1 {input.r1}\
         --reads_2 {input.r2}\
-        > {output} 2> {log}
+        > {output} 2> {log};
         """
 
 rule fastp_trim:
@@ -53,14 +49,10 @@ rule fastp_trim:
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz",
         json = "results/fastp_trim/{sample}.json",
         html = "results/fastp_trim/{sample}.html"
-    conda:
-        "fastp"
-    params:
-        version = "software_mqc_versions.yaml"
     log:
         "logs/fastp_trim/{sample}.log"
-    params:
-        version = "software_mqc_versions.yaml"
+    conda:
+        "fastp"
     shell:
         """
         fastp \
@@ -68,44 +60,40 @@ rule fastp_trim:
         -o {output.r1} -O {output.r2} \
         -j {output.json} -h {output.html} \
         2> {log};
-
-        version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
-        echo "fastp: "$version > {params.version}
         """
 
 rule hisat2_index:
-    input:
-        gtf = config["gtf"],
-        fasta = config["genome_fasta"]
     output:
         index = directory("ref/hisat2_index")
-    conda:
-        "hisat2"
     log:
         "logs/hisat2_index.log"
+    conda:
+        "hisat2"
+    params:
+        gtf = config["gtf"],
+        fasta = config["genome_fasta"]
     shell:
         """
         mkdir -p {output.index};
-        hisat2_extract_splice_sites.py {input.gtf} > ref/splice_sites.txt;
-        hisat2_extract_exons.py {input.gtf} > ref/exons.txt;
+        hisat2_extract_splice_sites.py {params.gtf} > ref/splice_sites.txt;
+        hisat2_extract_exons.py {params.gtf} > ref/exons.txt;
         hisat2-build -p 16 \
         --ss ref/splice_sites.txt \
         --exon ref/exons.txt \
-        {input.fasta} {output.index}/hisat2_index > {log} 2>&1
+        {params.fasta} {output.index}/hisat2_index > {log} 2>&1;
         """
-
 
 rule hisat2_align:
     input:
-        index=directory("ref/hisat2_index/"),
+        index="ref/hisat2_index",
         r1 = "results/fastp_trim/{sample}.trimmed.read1.fastq.gz",
         r2 = "results/fastp_trim/{sample}.trimmed.read2.fastq.gz"
     output:
         sam = "results/hisat2_align/{sample}.sam"
-    conda:
-        "hisat2"
     log:
         "logs/hisat2_align/{sample}.log"
+    conda:
+        "hisat2"
     threads: 16
     params:
         read_groups = lambda wildcards: df.loc[wildcards.sample, ["rg_id", "rg_sm", "rg_lb"]],
@@ -127,11 +115,12 @@ rule hisat2_align:
         > {log} 2>&1;
         """
 
-rule samtools_sort_index:
+rule samtools_sort_index_stat:
     input:
         bam = "results/hisat2_align/{sample}.sam"
     output:
-        sorted_bam = "results/hisat2_align/{sample}.sorted.bam"
+        sorted_bam = "results/hisat2_align/{sample}.sorted.bam",
+        flagstat = "results/hisat2_align/{sample}.flagstat"
     conda:
         "samtools"
     log:
@@ -141,18 +130,7 @@ rule samtools_sort_index:
         """
         samtools sort -@ {threads} -o {output.sorted_bam} {input.bam} > {log} 2>&1;
         samtools index -@ {threads} {output.sorted_bam};
-        """
-
-rule samtools_flagstat:
-    input:
-        bam = "results/hisat2_align/{sample}.sorted.bam"
-    output:
-        flagstat = "results/hisat2_align/{sample}.flagstat"
-    conda:
-        "samtools"
-    shell:
-        """
-        samtools flagstat {input.bam} > {output.flagstat};
+        samtools flagstat {output.sorted_bam} > {output.flagstat};
         """
 
 rule fastqc:
@@ -161,10 +139,10 @@ rule fastqc:
     output:
         html = "results/fastqc/{sample}.sorted_fastqc.html",
         zip = "results/fastqc/{sample}.sorted_fastqc.zip"
-    conda:
-        "fastqc"
     log:
         "logs/fastqc/{sample}.log"
+    conda:
+        "fastqc"
     shell:
         """
         fastqc -o results/fastqc {input.sorted_bam} > {log} 2>&1;
@@ -175,10 +153,10 @@ rule stringtie_assemble:
         bam = "results/hisat2_align/{sample}.sorted.bam"
     output:
         gtf = "results/stringtie/assemble/{sample}.gtf"
-    conda:
-        "stringtie"
     log:
         "logs/stringtie/{sample}.log"
+    conda:
+        "stringtie"
     params:
         strandedness = "--rf",
         gtf = "ref/chr22_with_ERCC92.gtf"
@@ -196,10 +174,10 @@ rule stringtie_merge:
         expand("results/stringtie/assemble/{sample}.gtf", sample = df["sample"])
     output:
         "results/stringtie/merged.gtf"
-    conda:
-        "stringtie"
     log:
         "logs/stringtie/merge.log"
+    conda:
+        "stringtie"
     threads: 16
     shell:
         """
@@ -216,10 +194,10 @@ rule stringtie_quant:
     output:
         gtf = "results/stringtie/quant/{sample}/{sample}.gtf",
         abundance = "results/stringtie/quant/{sample}/{sample}.tsv",
-    conda:
-        "stringtie"
     log:
         "logs/stringtie_quant/{sample}.log"
+    conda:
+        "stringtie"
     threads: 16
     shell:
         """
@@ -236,10 +214,10 @@ rule prepDE:
     output:
         gene = "results/prepDE/gene_count_matrix.csv",
         transcript = "results/prepDE/transcript_count_matrix.csv"
-    params:
-        script = "scripts/prepDE.py3"
     log:
         "logs/prepDE.log"
+    params:
+        script = "scripts/prepDE.py3"
     shell:
         """
         python3 {params.script} \
@@ -249,12 +227,44 @@ rule prepDE:
         > {log} 2>&1;
         """
 
+rule get_software_versions:
+    output:
+        "results/software_mqc_versions.yaml"
+    params:
+        conda_bin = "/home/dhart31/miniforge3/bin"
+    shell:
+        """
+        set +u; source {params.conda_bin}/activate how_are_we_stranded_here; set -u;
+        version=$(mamba list | grep how_are_we_stranded_here | tail -n 1 | awk '{{ print $2 }}'); 
+        echo "how_are_we_stranded_here: "$version > {output};
+
+        set +u; source {params.conda_bin}/activate fastp; set -u;
+        version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
+        echo "fastp: "$version >> {output};
+
+        set +u; source {params.conda_bin}/activate hisat2; set -u;
+        version=$(hisat2 --version | head -n 1| cut -f 3 -d ' ');
+        echo "hisat2: "$version >> {output};
+
+        set +u; source {params.conda_bin}/activate fastqc; set -u;
+        version=$(fastqc --version | cut -f 2 -d ' ');
+        echo "fastqc: "$version >> {output};
+
+        set +u; source {params.conda_bin}/activate samtools; set -u;
+        version=$(samtools --version | head -n 1 | cut -f 2 -d ' ');
+        echo "samtools: "$version >> {output};
+
+        set +u; source {params.conda_bin}/activate stringtie; set -u;
+        version=$(stringtie --version);
+        echo "stringtie: "$version >> {output};
+        """
+
 rule multiqc:
     input:
         expand("results/fastp_trim/{sample}.json", sample=df["sample"]),
-        expand("results/fastqc/{sample}.sorted_fastqc.html", sample=df["sample"])        
-        #expand("align_star/{sample}Log.final.out", sample=config["samples"]),
-        #expand("featurecounts/{sample}.counts", sample=config["samples"])
+        expand("results/fastqc/{sample}.sorted_fastqc.html", sample=df["sample"]),
+        expand("logs/hisat2_align/{sample}.log", sample=df["sample"]),
+        "results/software_mqc_versions.yaml"
     output:
         "results/multiqc_report.html"
     conda:
@@ -263,5 +273,5 @@ rule multiqc:
         config = f"{workflow.basedir}/config/multiqc.yaml"
     shell:
         """
-        multiqc -f results -o results;
+        multiqc -f results logs -o results;
         """
