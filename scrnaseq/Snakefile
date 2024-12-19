@@ -1,7 +1,7 @@
 
 rule all:
     input:
-        'results/simpleaf_quant/'
+        'results/alevin_report/alevin_report.html'
 
 rule simpleaf_index: 
     input:
@@ -59,3 +59,20 @@ rule simpleaf_quant:
         -o {output} \
         > {log} 2>&1;
         """
+
+rule alevinqc:
+    input:
+        mapDir = 'results/simpleaf_quant/af_map',
+        quantDir = 'results/simpleaf_quant/af_quant',
+        permitDir = 'results/simpleaf_quant/af_quant'
+    output:
+        report = 'results/alevin_report/alevin_report.html',
+    log:
+        'logs/alevin_report.log'
+    conda:
+        'alevinQC'
+    params:
+        sampleId = 'test'
+    script:
+        'scripts/alevinqc.R'
+    
