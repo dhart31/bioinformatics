@@ -1,0 +1,61 @@
+
+rule all:
+    input:
+        'results/simpleaf_quant/'
+
+rule simpleaf_index: 
+    input:
+        fasta = 'ref/GRCm38.p6.genome.chr19.fa',
+        gtf = 'ref/gencode.vM19.annotation.chr19.gtf'
+    output:
+        output = directory('results/simpleaf_index/')
+    log:
+        'logs/simpleaf_index.log'
+    conda:
+        'simpleaf'
+    shell:
+        """
+        ulimit -n 2048;
+        export ALEVIN_FRY_HOME=.;
+        export NUMBA_CACHE_DIR=.;
+        simpleaf set-paths;
+
+        simpleaf index \
+        -f {input.fasta} \
+        --gtf {input.gtf} \
+        -o {output} \
+        > {log} 2>&1;
+        """
+
+rule simpleaf_quant:
+    input:
+        index = 'results/simpleaf_index/index',
+        t2g = 'results/simpleaf_index/ref/t2g_3col.tsv',
+        fq1 = 'raw_data/Sample_X_S1_L001_R1_001.fastq.gz',
+        fq2 = 'raw_data/Sample_X_S1_L001_R2_001.fastq.gz'
+    output:
+        output = directory('results/simpleaf_quant/')
+    log:
+        'logs/simpleaf_quant.log'
+    conda:
+        'simpleaf'
+    params:
+        expect_cells = 5000
+    shell:
+        """
+        ulimit -n 2048;
+        export ALEVIN_FRY_HOME=.;
+        export NUMBA_CACHE_DIR=.;
+        simpleaf set-paths;
+
+        simpleaf quant \
+        -i {input.index} \
+        -1 {input.fq1} \
+        -2 {input.fq2} \
+        -m {input.t2g} \
+        --chemistry 10xv2 \
+        --resolution cr-like\
+        --expect-cells {params.expect_cells} \
+        -o {output} \
+        > {log} 2>&1;
+        """
