@@ -1,10 +1,15 @@
 -- Parse sam file
+-- Attach row_id
+-- Extract cigar string into list of length+operation pairs
 CREATE TABLE IF NOT EXISTS sam AS 
-SELECT *
+SELECT
+    row_number() OVER () as row_id,
+    *,
+    regexp_extract_all(cigar, '(\d+)([MIDNSHP=X])') AS cigar_parts,
 FROM read_csv('test.sam',
     delim="\t",
     comment='@',
-    names = [    
+    names = [
         qname,
         flag,
         rname,
@@ -18,67 +23,40 @@ FROM read_csv('test.sam',
         qual 
     ]
 );
-
-
-WITH cigar_strings AS (
-    SELECT 
-        row_number() OVER () AS row_id,
-        cigar
-    FROM
-        unnest(['8M2I4M1D3M', '3M1I2M', '5M2D3M']) AS t(cigar)
-),
-parsed_operations AS (
+-- Get lengths that consume reference, then unnest
+-- Attach subscript for multi cigar operation entries
+EXPLAIN ANALYZE WITH sam_refconsuminglens AS (
     SELECT
         row_id,
+        qname,
+        pos,
         cigar,
-        unnest(regexp_extract_all(cigar, '(\d+)([MIDNSHP=X])')) AS parts,
-    FROM cigar_strings
+        UNNEST(
+            list_transform(
+                cigar_parts,
+                x ->  CASE WHEN x[-1] IN ('M', 'D', 'N', '=', 'X') THEN x[:-2]::INTEGER ELSE NULL END
+                )::INTEGER[]
+            ) AS lens, generate_subscripts(cigar_parts,1) AS index
+    FROM sam
 ),
-operations AS (
-    SELECT 
-        cigar,
-        row_number() OVER (PARTITION BY cigar ORDER BY row_id) AS op_id,
-        parts[1]::INT AS len,
-        parts[2] AS operation
-    FROM parsed_operations
-),
-cumulative_positions AS (
+-- Perform cumulative sum of ref-consuming lengths
+sam_cumsum AS (
     SELECT
+        row_id
+        qname,
+        pos,
         cigar,
-        op_id,
-        operation,
-        len,
-        sum(CASE WHEN operation IN ('M', 'D', 'N', '=', 'X') THEN len ELSE 0 END) 
-            OVER (PARTITION BY cigar ORDER BY op_id)::INT AS cum_pos
-    FROM operations
-),
-reference_ranges AS (
-    SELECT
-        cigar,
-        op_id,
-        operation,
-        CASE 
-            WHEN operation IN ('M', 'D', 'N', '=', 'X') THEN 
-                cum_pos - len + 1 -- start position
-            ELSE NULL
-        END AS start_pos,
-        CASE 
-            WHEN operation IN ('M', 'D', 'N', '=', 'X') THEN 
-                cum_pos -- end position
-            ELSE NULL
-        END AS end_pos
-    FROM cumulative_positions
-),
-expanded_positions AS (
-    SELECT
-        cigar,
-        generate_series(start_pos, end_pos) AS ref_position
-    FROM reference_ranges
-    WHERE operation='M'
+        lens,
+        sum(lens) OVER (PARTITION BY row_id ORDER BY index)::INT AS cum_sum
+    FROM sam_refconsuminglens
+    ORDER BY row_id
 )
+-- Calculate coverage by counting ref-consuming positions
+SELECT ref_pos, count(ref_pos) AS count
+FROM sam_cumsum, UNNEST(generate_series(pos+cum_sum-lens,pos+cum_sum-1)) AS t(ref_pos)
+GROUP BY ref_pos
+ORDER BY ref_pos
 
-SELECT cigar,flatten(list(ref_position)) FROM expanded_positions
-GROUP BY cigar
 
 
 
