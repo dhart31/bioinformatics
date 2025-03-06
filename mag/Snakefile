@@ -1,0 +1,76 @@
+rule fastp_trim:
+    input:
+        r1 = "raw_data/{sample}_dupes_R1.fastq",
+        r2 = "raw_data/{sample}_dupes_R2.fastq"
+    output:
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq",
+        json = "fastp_trim/{sample}.json",
+        html = "fastp_trim/{sample}.html"
+    conda:
+        "fastp"
+    params:
+        version = "software_mqc_versions.yaml"
+    log:
+        "fastp_trim/{sample}.log"
+    params:
+        version = "software_mqc_versions.yaml"
+    shell:
+        """
+        fastp \
+        -i {input.r1} -I {input.r2} \
+        -o {output.r1} -O {output.r2} \
+        -j {output.json} -h {output.html} \
+        2> {log};
+
+        version=$(fastp --version 2>&1 | cut -f 2 -d ' ');
+        echo "fastp: "$version > {params.version}
+        """
+
+# Rule for assembly
+rule spades_assemble:
+    input:
+        r1 = "fastp_trim/{sample}_trimmed_R1.fastq",
+        r2 = "fastp_trim/{sample}_trimmed_R2.fastq",
+        u1 = "fastp_trim/{sample}_trimmed_U1.fastq",
+        u2 = "fastp_trim/{sample}_trimmed_U2.fastq"
+    output:
+        contigs = "spades_assemble/{sample}/contigs.fasta"
+    conda:
+        "spades"
+    params:
+        spades_dir = lambda wildcards, output: os.path.dirname(output.contigs),
+        version = "software_mqc_versions.yaml"
+    log:
+        error = "spades_assemble/{sample}_error.log",
+        out = "spades_assemble/{sample}_output.log"
+    threads: 16
+    shell:
+        """
+        spades.py -1 {input.r1} -2 {input.r2} \
+        -k auto -o {params.spades_dir} -t {threads} --rnaviral\
+        1> {log.out} 2> {log.error};
+
+        version=$(spades.py --version | cut -f 4 -d ' ');
+        echo "spades: "$version >> {params.version}
+        """
+
+rule metabat2:
+    input:
+        contigs = "spades_assemble/{sample}/contigs.fasta"
+    output:
+        abdFile = "metabat2/{sample}.txt",
+        bins = "metabat/{sample}/bin"
+    conda:
+        "metabat2"
+    params:
+    log:
+    threads: 16
+    shell:
+        """
+        metabat2 \
+        -i {input.contigs}\
+        -a {output.abdFile}\
+        -o {output.bins} \
+        -t {threads}
+        """
